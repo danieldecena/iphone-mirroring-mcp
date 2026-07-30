@@ -11,6 +11,7 @@ origin, which is exactly the coordinate space ``window.CaptureState`` maps into.
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import time
@@ -23,6 +24,41 @@ _CLICLICK = shutil.which("cliclick") or "/opt/homebrew/bin/cliclick"
 
 class InputError(RuntimeError):
     pass
+
+
+@contextlib.contextmanager
+def _focused():
+    """Front the phone window for the duration of an input action, then undo it.
+
+    Taps cannot avoid taking focus — cliclick posts real HID events and macOS
+    routes those to the frontmost app — but they can give it straight back. We
+    also park the pointer where the user left it, since a real cursor move is
+    the other half of what makes this disruptive on a second display.
+    """
+    prior_app = window.frontmost_process()
+    prior_cursor = _cursor_position()
+    window.bring_to_front()
+    try:
+        yield
+    finally:
+        if prior_cursor is not None:
+            _run_cliclick([f"m:{prior_cursor[0]},{prior_cursor[1]}"])
+        window.restore_frontmost(prior_app)
+
+
+def _cursor_position() -> tuple[int, int] | None:
+    """Current pointer location, or None if cliclick can't report it."""
+    result = subprocess.run([_CLICLICK, "p"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    # cliclick prints "123,456".
+    parts = result.stdout.strip().split(",")
+    if len(parts) != 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
 
 
 def _run_cliclick(args: Iterable[str]) -> None:
@@ -64,9 +100,9 @@ def _screen_point(img_x: float, img_y: float) -> tuple[int, int]:
 
 def tap(img_x: float, img_y: float) -> tuple[int, int]:
     """Tap at a point given in *screenshot pixel* coordinates."""
-    window.bring_to_front()
-    gx, gy = _screen_point(img_x, img_y)
-    _run_cliclick([f"c:{gx},{gy}"])
+    with _focused():
+        gx, gy = _screen_point(img_x, img_y)
+        _run_cliclick([f"c:{gx},{gy}"])
     return gx, gy
 
 
@@ -82,27 +118,27 @@ def swipe(
     A swipe is a press, a few intermediate moves (so iOS reads it as a gesture
     rather than a flick), then a release.
     """
-    window.bring_to_front()
-    x1, y1 = _screen_point(img_x1, img_y1)
-    x2, y2 = _screen_point(img_x2, img_y2)
+    with _focused():
+        x1, y1 = _screen_point(img_x1, img_y1)
+        x2, y2 = _screen_point(img_x2, img_y2)
 
-    args = [f"m:{x1},{y1}", f"dd:{x1},{y1}"]
-    steps = max(2, steps)
-    for i in range(1, steps + 1):
-        t = i / steps
-        mx = round(x1 + (x2 - x1) * t)
-        my = round(y1 + (y2 - y1) * t)
-        args.append(f"m:{mx},{my}")
-    args.append(f"du:{x2},{y2}")
-    _run_cliclick(args)
+        args = [f"m:{x1},{y1}", f"dd:{x1},{y1}"]
+        steps = max(2, steps)
+        for i in range(1, steps + 1):
+            t = i / steps
+            mx = round(x1 + (x2 - x1) * t)
+            my = round(y1 + (y2 - y1) * t)
+            args.append(f"m:{mx},{my}")
+        args.append(f"du:{x2},{y2}")
+        _run_cliclick(args)
     return (x1, y1), (x2, y2)
 
 
 def type_text(text: str) -> None:
     """Type a string into whatever field is focused on the phone."""
-    window.bring_to_front()
-    # cliclick's t: types the literal string (handles spaces/punctuation).
-    _run_cliclick([f"t:{text}"])
+    with _focused():
+        # cliclick's t: types the literal string (handles spaces/punctuation).
+        _run_cliclick([f"t:{text}"])
 
 
 # cliclick key names for the presses we expose. Kept small and explicit so the
@@ -129,8 +165,8 @@ def press_key(key: str) -> None:
         raise InputError(
             f"Unknown key '{key}'. Supported: {', '.join(sorted(_KEY_MAP))}."
         )
-    window.bring_to_front()
-    _run_cliclick([f"kp:{name}"])
+    with _focused():
+        _run_cliclick([f"kp:{name}"])
 
 
 def key_combo_command(digit: str) -> None:
@@ -140,14 +176,14 @@ def key_combo_command(digit: str) -> None:
     We use osascript keystroke rather than cliclick because modifier chords are
     cleaner to express there.
     """
-    window.bring_to_front()
-    script = (
-        f'tell application "System Events" to keystroke "{digit}" using command down'
-    )
-    result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise InputError(
-            "osascript keystroke failed — grant the host app Accessibility "
-            f"permission. Detail: {result.stderr.strip()}"
+    with _focused():
+        script = f'tell application "System Events" to keystroke "{digit}" using command down'
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True
         )
-    time.sleep(0.4)
+        if result.returncode != 0:
+            raise InputError(
+                "osascript keystroke failed — grant the host app Accessibility "
+                f"permission. Detail: {result.stderr.strip()}"
+            )
+        time.sleep(0.4)

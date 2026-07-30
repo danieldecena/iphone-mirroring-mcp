@@ -58,8 +58,10 @@ class ScreenshotInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     bring_to_front: bool = Field(
         default=True,
-        description="Focus the iPhone Mirroring window before capturing so it "
-        "isn't hidden behind another app or Space. Almost always leave True.",
+        description="Focus the iPhone Mirroring window before capturing. Leave "
+        "True: the app removes its window from the window list entirely while "
+        "backgrounded, so a capture without focus cannot find it at all. Focus "
+        "is handed back to the previous app as soon as the capture completes.",
     )
 
 
@@ -146,10 +148,18 @@ class SwipeInput(BaseModel):
         description="Convenience: swipe up/down/left/right across the middle of "
         "the screen (good for scrolling). Ignored if x1/y1/x2/y2 are given.",
     )
-    x1: Optional[float] = Field(default=None, description="Start X (screenshot px).", ge=0)
-    y1: Optional[float] = Field(default=None, description="Start Y (screenshot px).", ge=0)
-    x2: Optional[float] = Field(default=None, description="End X (screenshot px).", ge=0)
-    y2: Optional[float] = Field(default=None, description="End Y (screenshot px).", ge=0)
+    x1: Optional[float] = Field(
+        default=None, description="Start X (screenshot px).", ge=0
+    )
+    y1: Optional[float] = Field(
+        default=None, description="Start Y (screenshot px).", ge=0
+    )
+    x2: Optional[float] = Field(
+        default=None, description="End X (screenshot px).", ge=0
+    )
+    y2: Optional[float] = Field(
+        default=None, description="End Y (screenshot px).", ge=0
+    )
 
 
 @mcp.tool(
@@ -209,7 +219,9 @@ async def iphone_swipe(params: SwipeInput) -> str:
 # --------------------------------------------------------------------------- #
 class TypeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(..., description="Text to type into the focused field.", min_length=1)
+    text: str = Field(
+        ..., description="Text to type into the focused field.", min_length=1
+    )
 
 
 @mcp.tool(

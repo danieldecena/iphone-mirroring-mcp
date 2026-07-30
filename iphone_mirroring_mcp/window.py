@@ -148,16 +148,57 @@ def bring_to_front() -> None:
     time.sleep(0.15)
 
 
+def frontmost_process() -> Optional[str]:
+    """Name of the app that currently owns focus, or None if it can't be read."""
+    result = subprocess.run(
+        [
+            "osascript",
+            "-e",
+            'tell application "System Events" to get name of '
+            "first process whose frontmost is true",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    name = result.stdout.strip()
+    return name or None
+
+
+def restore_frontmost(name: Optional[str]) -> None:
+    """Hand focus back to `name`, unless it was already iPhone Mirroring.
+
+    Best-effort by design: if the app quit or was renamed mid-action there is
+    nothing sensible to fall back to, and failing here would mask the caller's
+    actual result.
+    """
+    if not name or name == APP_PROCESS_NAME:
+        return
+    subprocess.run(
+        [
+            "osascript",
+            "-e",
+            'tell application "System Events" to set frontmost of '
+            f'(first process whose name is "{name}") to true',
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
 def capture(front: bool = True) -> tuple[bytes, CaptureState]:
     """Capture the iPhone Mirroring window as PNG bytes and record its geometry.
 
     Args:
-        front: bring the window to the front before capturing (recommended, so
-            it is not occluded by another Space/app).
+        front: bring the window to the front before capturing. Required in
+            practice, not merely recommended: VERIFIED 2026-07-30 that while
+            iPhone Mirroring is backgrounded the process keeps running but its
+            window leaves the Quartz window list entirely, so find_window()
+            raises and there is nothing to image. Focus is handed back below.
 
     Returns:
         (png_bytes, CaptureState)
     """
+    prior_app = frontmost_process() if front else None
     if front:
         bring_to_front()
 
@@ -189,6 +230,11 @@ def capture(front: bool = True) -> tuple[bytes, CaptureState]:
         if front:
             bring_to_front()
         time.sleep(0.4)
+
+    # Hand focus back before returning OR raising — the pixels are already in
+    # memory, so nothing below needs the window to still be front. Placing this
+    # ahead of the error check covers both exits with one call.
+    restore_frontmost(prior_app)
 
     if data is None:
         raise RuntimeError(
