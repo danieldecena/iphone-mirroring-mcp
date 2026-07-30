@@ -1,0 +1,21 @@
+[project]
+name = "iphone-mirroring-mcp"
+version = "0.1.0"
+description = "MCP server to control the macOS iPhone Mirroring window (screenshot, tap, swipe, type, OCR)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.6.0,<2",
+    "pyobjc-framework-Quartz>=10.0",
+    "pyobjc-framework-Vision>=10.0",
+]
+
+[project.scripts]
+iphone-mirroring-mcp = "iphone_mirroring_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["iphone_mirroring_mcp"]
